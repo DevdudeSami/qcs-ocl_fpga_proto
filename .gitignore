@@ -1,0 +1,17 @@
+*.DS_Store
+.svn
+*.exe
+*.aoco
+*.aocx
+build_AOCL
+build_CPU
+out.dat
+error.log
+*.log
+*.cl.orig
+
+
+# for each FPGA kernel module
+vector_add/vector_add
+matrix_vector_mul/matrix_vector_mul
+

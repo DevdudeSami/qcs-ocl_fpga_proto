@@ -1,0 +1,59 @@
++ AOC tool can be loaded via the "module" command line tool.
+>> module load aocl/15.1
+
++ To check, run
+$ aoc --version
+
++ To check if the AOC FPGA device on Bolama is alive:
+$ aocl diagnose
+
+
+Should print something like this:
+"
+aocl diagnose: Running diagnostic from /opt/altera/15.1/hld/board/nalla_pcie/linux64/libexec
+
+Verified that the kernel mode driver is installed on the host machine.
+
+Using board package from vendor: Nallatech ltd
+Querying information for all supported devices that are installed on the host machine ... 
+
+
+Device Name   Status   Information
+
+acl0          Passed   PCIe385n
+                       PCIe dev_id = D500, bus:slot.func = 81:00.00, at Gen 2 with 8 lanes
+                       FPGA temperature = 39 degrees C.
+                       Power Usage = 13.449 Watts.
+                       UFM Serial Number   = 7800468
+                       UFM Batch Code      = 'FCAAAM1325A'
+                       UFM MAC0 Address    = 00:0C:D7:00:14:9A
+                       UFM MAC1 Address    = 00:0C:D7:00:14:9B
+                       UFM Power on count  = 70
+                       UFM CRC Error Count = 0
+                       UFM CPLD version    = 2018-16-16 (a)
+                       UCD PMBUS revision        = 33
+                       UCD Manufacturer ID       = "Nallatech"
+                       UCD Device ID             = "UCD9090|2.3.5.0000|110701"
+                       UCD Manufacturer Date     = "130109"
+                       UCD Manufacturer Location = "Camarillo"
+                       UCD Manufacturer Model    = "PCIe-385N"
+                       UCD Manufacturer Revision = "v0501"
+                       UCD Rail  1               = 12.123047 V, 1.125000 A, 13.638428 W
+                       UCD Rail  2               = 0.909424 V
+                       UCD Rail  3               = 1.529541 V
+                       UCD Rail  4               = 1.002197 V
+                       UCD Rail  5               = 1.006592 V
+                       UCD Rail  6               = 1.354492 V
+                       UCD Rail  7               = 0.669678 V
+                       UCD Rail  8               = 0.677002 V
+                       UCD Rail  9               = 2.486328 V
+                       UCD Rail 10               = 3.028809 V
+                       
+
+Found 1 active device(s) installed on the host machine. To perform a full diagnostic on a specific device, please run
+      aocl diagnose <device_name>
+
+DIAGNOSTIC_PASSED
+"
+
+

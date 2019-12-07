@@ -1,0 +1,60 @@
+Waqar Nabi, Glasgow, Nov 2017
+
+=====
+ABOUT
+=====
+A barebones opencl synthetic application.
+Intended targets are:
+CPU : Inter CPU 
+AOCL: Altera FPGA (on BOLAMA)
+This can be extended.
+
+
+=============
+REQUIREMENTS
+=============
+
+1. For Altera-OpenCL (AOCL), you need the aoc compiler and appropriate licenses. This code has been tested with aocl/15.1, with OpenCL 1.2, on bolama@glasgow
+
+2. For Intel CPU targets, you need Intel's OpenCL drivers and runtime installed, with OpenCL version 2.1. You can get it from here:
+https://software.intel.com/en-us/articles/opencl-drivers#latest_linux_SDK_release
+
+=====
+BUILD
+=====
+
+CPU (HOST-ONLY) TARGET
+-----------------------
+
+/1/
+if using modules, make sure AOCL is *unloaded*, e.g.:
+> module unload aocl/15.1
+
+/2/
+a) baseline (no channels):
+> cd build_CPU
+> make
+> ./host.exe
+
+b) channelized:
+> cd build_CPU
+> make CHANNELS=1
+> ./host.exe
+
+ALTERA-OCL
+----------
+/1/
+if using modules, make sure AOCL is loaded, e.g.:
+> module load aocl/15.1
+
+
+/2/
+a) baseline (no channels):
+cd build_AOCL
+. ./build_and_run_emu.sh (for emulation)
+. ./build_and_run_hw.sh  (for full hardware sythesis) 
+
+b) channelized:
+cd build_AOCL
+. ./build_and_run_emu_channels.sh (for emulation)
+. ./build_and_run_hw_channels     (for full hardware sythesis) 
