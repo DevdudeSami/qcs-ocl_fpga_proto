@@ -1,0 +1,1 @@
+aoc -v --report -march=emulator --board p385_hpc_d5 -DTARGET=AOCL -DDEBUG ./device/kernels.cl

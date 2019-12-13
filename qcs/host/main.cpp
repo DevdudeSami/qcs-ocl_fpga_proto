@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <math.h>
 #include <complex>
+#include <vector>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,11 +41,11 @@ cl_device_id device;
 cl_context context;
 cl_program program;
 
-const int n = 2;
+const int n = 3;
 const int N = pow(2, n);
-const int M = 2; 
+const int G = 2; // number of gates
 
-void writeResults(cxf mat[M*M], cxf vecIn[N], cxf vecOut[N]);
+void writeResults(cxf vecOut_r[N], cxf vecOut_i[N]);
 unsigned char *load_file(const char* filename,size_t*size_ret);
 void notify_print(const char* errinfo, const void* private_info, size_t cb, void *user_data);
 
@@ -55,15 +56,36 @@ int main(int argc, char** argv)  {
   fp      = fopen("out.dat", "w");
   fperror = fopen("error.log", "w");
 
-	cxf gate[M*M] = { 0, 1, 1, 0 };
-	cxf stateIn[N] = { 0, 0, 1, 0 };
-	cxf stateOut[N];
-	int qID = 0;
+	/// TODO: Rewrite this
+	int qTargetsCount[G] = { 1, 1 };
+	int totalTargetCounts = 0;
+	int totalGatesLength = 0;
+	for(int i = 0; i < G; i++) {
+		totalTargetCounts += qTargetsCount[i];
+		totalGatesLength += pow(pow(2,qTargetsCount[i]),2);
+	}
+	///////
 
+	vector<int> qTargets { 0, 2 };
+
+	vector<cxf> gates_r { 0, 1, 1, 0, 0, 1, 1, 0 }; // two X's
+	vector<cxf> gates_i { 0, 0, 0, 0, 0, 0, 0, 0 };
+	cxf stateIn_r[N] = { 1, 0, 0, 0 };
+	cxf stateIn_i[N] = { 0, 0, 0, 0 };
+	cxf stateOut_r[N];
+	cxf stateOut_i[N];
+	
+	
 	// define device memory pointers
-	cl_mem gateDev = 0;
-	cl_mem stateInDev = 0;
-	cl_mem stateOutDev = 0;
+	cl_mem qTargetsCountDev = 0;
+	cl_mem qTargetsDev = 0;
+	cl_mem gates_rDev = 0;
+	cl_mem gates_iDev = 0;
+	cl_mem stateIn_rDev = 0;
+	cl_mem stateIn_iDev = 0;
+	// output memory pointers
+	cl_mem stateOut_rDev = 0;
+	cl_mem stateOut_iDev = 0;
 
   cl_int status = 0;
   int num_errs = 0;
@@ -124,26 +146,39 @@ int main(int argc, char** argv)  {
 
 	// create device memory buffer
 	printf("HST::Creating cl (device) buffers\n");
-  gateDev  = clCreateBuffer(context,CL_MEM_READ_WRITE,M*M*sizeof(cxf),0,&status); CHECK(status);
-  stateInDev = clCreateBuffer(context,CL_MEM_READ_WRITE,N*sizeof(cxf),0,&status); CHECK(status);
-  stateOutDev = clCreateBuffer(context,CL_MEM_READ_WRITE,N*sizeof(cxf),0,&status); CHECK(status);
+  qTargetsCountDev = clCreateBuffer(context,CL_MEM_READ_WRITE,G*sizeof(int),0,&status); CHECK(status);
+  qTargetsDev = clCreateBuffer(context,CL_MEM_READ_WRITE,totalTargetCounts*sizeof(int),0,&status); CHECK(status);
+  gates_rDev = clCreateBuffer(context,CL_MEM_READ_WRITE,totalGatesLength*sizeof(cxf),0,&status); CHECK(status);
+  gates_iDev = clCreateBuffer(context,CL_MEM_READ_WRITE,totalGatesLength*sizeof(cxf),0,&status); CHECK(status);
+  stateIn_rDev = clCreateBuffer(context,CL_MEM_READ_WRITE,N*sizeof(cxf),0,&status); CHECK(status);
+  stateIn_iDev = clCreateBuffer(context,CL_MEM_READ_WRITE,N*sizeof(cxf),0,&status); CHECK(status);
+  stateOut_rDev = clCreateBuffer(context,CL_MEM_READ_WRITE,N*sizeof(cxf),0,&status); CHECK(status);
+  stateOut_iDev = clCreateBuffer(context,CL_MEM_READ_WRITE,N*sizeof(cxf),0,&status); CHECK(status);
 
 	// write initial data to buffer on device (0th command queue for 0th kernel)
 	printf("HST::Preparing kernels\n");   
-  CHECK(clEnqueueWriteBuffer(commands[0],gateDev,0,0,M*M*sizeof(cxf),gate,0,0,0));
-  CHECK(clEnqueueWriteBuffer(commands[0],stateInDev,0,0,N*sizeof(cxf),stateIn,0,0,0));
+  CHECK(clEnqueueWriteBuffer(commands[0],qTargetsCountDev,0,0,G*sizeof(int),qTargetsCount,0,0,0));
+  CHECK(clEnqueueWriteBuffer(commands[0],qTargetsDev,0,0,totalTargetCounts*sizeof(cxf),&qTargets[0],0,0,0));
+  CHECK(clEnqueueWriteBuffer(commands[0],gates_rDev,0,0,totalGatesLength*sizeof(cxf),&gates_r[0],0,0,0));
+  CHECK(clEnqueueWriteBuffer(commands[0],gates_iDev,0,0,totalGatesLength*sizeof(cxf),&gates_i[0],0,0,0));
+  CHECK(clEnqueueWriteBuffer(commands[0],stateIn_rDev,0,0,N*sizeof(cxf),stateIn_r,0,0,0));
+  CHECK(clEnqueueWriteBuffer(commands[0],stateIn_iDev,0,0,N*sizeof(cxf),stateIn_i,0,0,0));
   CHECK(clFinish(commands[0]));
 
 	// set input kernel args
-	CHECK(clSetKernelArg(kernels[K_INPUT], 0, sizeof(int), &M));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 1, sizeof(int), &N));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 2, sizeof(cl_mem), &gateDev));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 3, sizeof(cl_mem), &stateInDev));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 4, sizeof(int), &qID));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 0, sizeof(int), &G));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 1, sizeof(int), &n));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 2, sizeof(cl_mem), &qTargetsCountDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 3, sizeof(cl_mem), &qTargetsDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 4, sizeof(cl_mem), &gates_rDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 5, sizeof(cl_mem), &gates_iDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 6, sizeof(cl_mem), &stateIn_rDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 7, sizeof(cl_mem), &stateIn_iDev));
   
 	// set output kernel args
 	CHECK(clSetKernelArg(kernels[K_OUTPUT], 0, sizeof(int), &N));
-	CHECK(clSetKernelArg(kernels[K_OUTPUT], 1, sizeof(cl_mem), &stateOutDev));
+	CHECK(clSetKernelArg(kernels[K_OUTPUT], 1, sizeof(cl_mem), &stateOut_rDev));
+	CHECK(clSetKernelArg(kernels[K_OUTPUT], 2, sizeof(cl_mem), &stateOut_iDev));
 
 	// single work-instance kernels
 	size_t dims[3] = {0, 0, 0};    
@@ -163,71 +198,36 @@ int main(int argc, char** argv)  {
 	//Read results
   //---------------------
   printf("HST::Reading results to host buffers...\n");
-  CHECK(clEnqueueReadBuffer(commands[K_OUTPUT],stateOutDev,1,0,N*sizeof(cxf),stateOut,0,0,0));
+  CHECK(clEnqueueReadBuffer(commands[K_OUTPUT],stateOut_rDev,1,0,N*sizeof(cxf),stateOut_r,0,0,0));
+  CHECK(clEnqueueReadBuffer(commands[K_OUTPUT],stateOut_iDev,1,0,N*sizeof(cxf),stateOut_i,0,0,0));
 
 	printf("HST::Writing results...\n");   
-  writeResults(gate, stateIn, stateOut);
+  writeResults(stateOut_r, stateOut_i);
 
 	// release memory
-	clReleaseMemObject(gateDev);
-	clReleaseMemObject(stateInDev);
-	clReleaseMemObject(stateOutDev);
+	clReleaseMemObject(qTargetsCountDev);
+	clReleaseMemObject(qTargetsDev);
+	clReleaseMemObject(gates_rDev);
+	clReleaseMemObject(gates_iDev);
+	clReleaseMemObject(stateIn_rDev);
+	clReleaseMemObject(stateIn_iDev);
+	clReleaseMemObject(stateOut_rDev);
+	clReleaseMemObject(stateOut_iDev);
 	clReleaseProgram(program);
 	clReleaseContext(context);
 
 	return 0;
 }
 
-void writeResults(cxf mat[M*M], cxf vecIn[N], cxf vecOut[N]) {
+void writeResults(cxf vecOut_r[N], cxf vecOut_i[N]) {
   FILE *fp = fopen("out.dat", "w");
   FILE *fperror = fopen("error.log", "w");
-	
-	// fprintf(fp, "-------------------------------------------------------------\n");
-	// fprintf(fp, "     mat:\n");
-	// fprintf(fp, "-------------------------------------------------------------\n");
-
-  // for(int i = 0; i < M; i++) {
-	// 	for(int j = 0; j < M; j++) {
-	// 		fprintf(fp, "\t%f%+fi",mat[j+M*i].real(), mat[j+M*i].imag());
-	// 	}
-  //   fprintf(fp, "\n");
-	// }
-
-  // fprintf(fp, "-------------------------------------------------------------\n");
-	// fprintf(fp, "     vecIn:\n");
-	// fprintf(fp, "-------------------------------------------------------------\n");
-	// for(int i=0; i<M; i++)
-	// 	fprintf (fp, "\t%f%+fi\n", vecIn[i].real(), vecIn[i].imag());
-
-  // fprintf(fp, "-------------------------------------------------------------\n");
-	// fprintf(fp, "     vecOut:\n");
-	// fprintf(fp, "-------------------------------------------------------------\n");
-	// for(int i=0; i<M; i++)
-	// 	fprintf (fp, "\t%f%+fi\n", vecOut[i].real(), vecOut[i].imag());
-	
-	
-	fprintf(fp, "-------------------------------------------------------------\n");
-	fprintf(fp, "     mat:\n");
-	fprintf(fp, "-------------------------------------------------------------\n");
-
-  for(int i = 0; i < M; i++) {
-		for(int j = 0; j < M; j++) {
-			fprintf(fp, "\t%f",mat[j+M*i]);
-		}
-    fprintf(fp, "\n");
-	}
-
-  fprintf(fp, "-------------------------------------------------------------\n");
-	fprintf(fp, "     vecIn:\n");
-	fprintf(fp, "-------------------------------------------------------------\n");
-	for(int i=0; i<N; i++)
-		fprintf (fp, "\t%f\n", vecIn[i]);
 
   fprintf(fp, "-------------------------------------------------------------\n");
 	fprintf(fp, "     vecOut:\n");
 	fprintf(fp, "-------------------------------------------------------------\n");
 	for(int i=0; i<N; i++)
-		fprintf (fp, "\t%f\n", vecOut[i]);
+		fprintf (fp, "\t%f%+fi\n", vecOut_r[i], vecOut_i[i]);
 }
 
 //-------------------------------------------------
@@ -246,7 +246,7 @@ unsigned char *load_file(const char* filename,size_t*size_ret)
    // Obtain file size.
    fseek(fp, 0, SEEK_END);
    len = ftell(fp);
-   // Go to the beginning.
+   // Go to the beginning.ç
    fseek(fp, 0, SEEK_SET);
    // Allocate memory for the file data.
    result = (unsigned char*)malloc(len+CHUNK_SIZE);
