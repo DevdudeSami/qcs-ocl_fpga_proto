@@ -14,17 +14,23 @@ using namespace std;
 
 #define CHECK(X) assert(CL_SUCCESS == (X))
 
-#define NKERNELS    3
+#define NKERNELS    5
 #define K_INPUT     0
 #define K_COMPUTE   1
-#define K_OUTPUT    2
+#define K_SINGLE_QUBIT_GATE 2
+#define K_DOUBLE_QUBIT_GATE 3
+#define K_OUTPUT    4
 #define NAME_K0 "kernelInput"
 #define NAME_K1 "kernelCompute"
-#define NAME_K2 "kernelOutput"
+#define NAME_K2 "singleQubitGate"
+#define NAME_K3 "doubleQubitGate"
+#define NAME_K4 "kernelOutput"
 const char* kernel_names[NKERNELS] = {
 	NAME_K0, 
-	NAME_K1, 
-	NAME_K2
+	NAME_K1,
+	NAME_K2,
+	NAME_K3,
+	NAME_K4
 };
 
 //multiple kernels (possibly over  multiple devices) required multiple command queues
@@ -41,7 +47,7 @@ cl_device_id device;
 cl_context context;
 cl_program program;
 
-const int n = 3;
+const int n = 2;
 const int N = pow(2, n);
 const int G = 2; // number of gates
 
@@ -57,19 +63,38 @@ int main(int argc, char** argv)  {
   fperror = fopen("error.log", "w");
 
 	/// TODO: Rewrite this
-	int qTargetsCount[G] = { 1, 1 };
-	int totalTargetCounts = 0;
-	int totalGatesLength = 0;
-	for(int i = 0; i < G; i++) {
-		totalTargetCounts += qTargetsCount[i];
-		totalGatesLength += pow(pow(2,qTargetsCount[i]),2);
-	}
+	int qTargetsCount[G] = { 1, 2 };
+	int totalTargetCounts = 3;
+	int totalGatesLength = 20;
 	///////
 
-	vector<int> qTargets { 0, 2 };
+	vector<int> qTargets { 0, 0, 1 };
 
-	vector<cxf> gates_r { 0, 1, 1, 0, 0, 1, 1, 0 }; // two X's
-	vector<cxf> gates_i { 0, 0, 0, 0, 0, 0, 0, 0 };
+	vector<cxf> gates_r {  // H then CNOT
+		// X
+		// 0, 1,
+		// 1, 0
+		
+		// H
+		1/sqrtf(2.0), 1/sqrtf(2.0), 
+		1/sqrtf(2.0), -1/sqrtf(2.0),
+
+		// CNOT		
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 0, 1,
+		0, 0, 1, 0 
+	};
+	vector<cxf> gates_i { 
+		0, 0, 
+		0, 0, 
+		
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0
+	};
+
 	cxf stateIn_r[N] = { 1, 0, 0, 0 };
 	cxf stateIn_i[N] = { 0, 0, 0, 0 };
 	cxf stateOut_r[N];
@@ -77,8 +102,6 @@ int main(int argc, char** argv)  {
 	
 	
 	// define device memory pointers
-	cl_mem qTargetsCountDev = 0;
-	cl_mem qTargetsDev = 0;
 	cl_mem gates_rDev = 0;
 	cl_mem gates_iDev = 0;
 	cl_mem stateIn_rDev = 0;
@@ -146,8 +169,6 @@ int main(int argc, char** argv)  {
 
 	// create device memory buffer
 	printf("HST::Creating cl (device) buffers\n");
-  qTargetsCountDev = clCreateBuffer(context,CL_MEM_READ_WRITE,G*sizeof(int),0,&status); CHECK(status);
-  qTargetsDev = clCreateBuffer(context,CL_MEM_READ_WRITE,totalTargetCounts*sizeof(int),0,&status); CHECK(status);
   gates_rDev = clCreateBuffer(context,CL_MEM_READ_WRITE,totalGatesLength*sizeof(cxf),0,&status); CHECK(status);
   gates_iDev = clCreateBuffer(context,CL_MEM_READ_WRITE,totalGatesLength*sizeof(cxf),0,&status); CHECK(status);
   stateIn_rDev = clCreateBuffer(context,CL_MEM_READ_WRITE,N*sizeof(cxf),0,&status); CHECK(status);
@@ -157,8 +178,6 @@ int main(int argc, char** argv)  {
 
 	// write initial data to buffer on device (0th command queue for 0th kernel)
 	printf("HST::Preparing kernels\n");   
-  CHECK(clEnqueueWriteBuffer(commands[0],qTargetsCountDev,0,0,G*sizeof(int),qTargetsCount,0,0,0));
-  CHECK(clEnqueueWriteBuffer(commands[0],qTargetsDev,0,0,totalTargetCounts*sizeof(cxf),&qTargets[0],0,0,0));
   CHECK(clEnqueueWriteBuffer(commands[0],gates_rDev,0,0,totalGatesLength*sizeof(cxf),&gates_r[0],0,0,0));
   CHECK(clEnqueueWriteBuffer(commands[0],gates_iDev,0,0,totalGatesLength*sizeof(cxf),&gates_i[0],0,0,0));
   CHECK(clEnqueueWriteBuffer(commands[0],stateIn_rDev,0,0,N*sizeof(cxf),stateIn_r,0,0,0));
@@ -166,19 +185,14 @@ int main(int argc, char** argv)  {
   CHECK(clFinish(commands[0]));
 
 	// set input kernel args
-	CHECK(clSetKernelArg(kernels[K_INPUT], 0, sizeof(int), &G));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 1, sizeof(int), &n));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 2, sizeof(cl_mem), &qTargetsCountDev));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 3, sizeof(cl_mem), &qTargetsDev));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 4, sizeof(cl_mem), &gates_rDev));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 5, sizeof(cl_mem), &gates_iDev));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 6, sizeof(cl_mem), &stateIn_rDev));
-	CHECK(clSetKernelArg(kernels[K_INPUT], 7, sizeof(cl_mem), &stateIn_iDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 0, sizeof(cl_mem), &gates_rDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 1, sizeof(cl_mem), &gates_iDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 2, sizeof(cl_mem), &stateIn_rDev));
+	CHECK(clSetKernelArg(kernels[K_INPUT], 3, sizeof(cl_mem), &stateIn_iDev));
   
 	// set output kernel args
-	CHECK(clSetKernelArg(kernels[K_OUTPUT], 0, sizeof(int), &N));
-	CHECK(clSetKernelArg(kernels[K_OUTPUT], 1, sizeof(cl_mem), &stateOut_rDev));
-	CHECK(clSetKernelArg(kernels[K_OUTPUT], 2, sizeof(cl_mem), &stateOut_iDev));
+	CHECK(clSetKernelArg(kernels[K_OUTPUT], 0, sizeof(cl_mem), &stateOut_rDev));
+	CHECK(clSetKernelArg(kernels[K_OUTPUT], 1, sizeof(cl_mem), &stateOut_iDev));
 
 	// single work-instance kernels
 	size_t dims[3] = {0, 0, 0};    
@@ -205,8 +219,6 @@ int main(int argc, char** argv)  {
   writeResults(stateOut_r, stateOut_i);
 
 	// release memory
-	clReleaseMemObject(qTargetsCountDev);
-	clReleaseMemObject(qTargetsDev);
 	clReleaseMemObject(gates_rDev);
 	clReleaseMemObject(gates_iDev);
 	clReleaseMemObject(stateIn_rDev);
