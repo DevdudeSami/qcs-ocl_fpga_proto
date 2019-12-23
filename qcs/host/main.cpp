@@ -14,24 +14,29 @@ using namespace std;
 
 #define CHECK(X) assert(CL_SUCCESS == (X))
 
-#define NKERNELS    5
+#define NKERNELS    6
 #define K_INPUT     0
 #define K_COMPUTE   1
 #define K_SINGLE_QUBIT_GATE 2
 #define K_DOUBLE_QUBIT_GATE 3
 #define K_OUTPUT    4
+#define K_TWO_MULTIPLIER    5
 #define NAME_K0 "kernelInput"
 #define NAME_K1 "kernelCompute"
 #define NAME_K2 "singleQubitGate"
 #define NAME_K3 "doubleQubitGate"
 #define NAME_K4 "kernelOutput"
+#define NAME_K5 "twoMultiplier"
 const char* kernel_names[NKERNELS] = {
 	NAME_K0, 
 	NAME_K1,
 	NAME_K2,
 	NAME_K3,
-	NAME_K4
+	NAME_K4,
+	NAME_K5
 };
+
+#define MULTIPLIER_KERNELS 2
 
 //multiple kernels (possibly over  multiple devices) required multiple command queues
 cl_kernel kernels[NKERNELS];
@@ -196,12 +201,15 @@ int main(int argc, char** argv)  {
 
 	// single work-instance kernels
 	size_t dims[3] = {0, 0, 0};    
-  dims[0] = 1 ;
 
 	//Launch Kernel
   //-------------
-  printf("HST::Enqueueing kernel with global size %d\n",(int)dims[0]);  
   for (int i=0; i<NKERNELS; i++) {
+		size_t dims[3] = {3, 0, 0};
+		dims[0] = 1;
+		if(kernel_names[i] == NAME_K5) dims[0] = MULTIPLIER_KERNELS;
+
+		printf("HST::Enqueueing kernel '%s' with global size %d\n", kernel_names[i], (int)dims[0]);  
     CHECK(clEnqueueNDRangeKernel(commands[i],kernels[i],1,0,dims,0,0,0,0));
   }
 

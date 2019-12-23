@@ -95,85 +95,127 @@ int nthInSequence(int n, int tCount, int* ts, int s) {
 #define SINGLE_CALLS 1
 #define DOUBLE_CALLS 1
 constant int qTargetsCount[] = { 1, 2 }; // Number of target qubits of each gate
-constant int qTargets[] = { 0, 0, 1 }; // The qubit ID targets of each gate
+constant int qTargets[] = { 1, 1, 0 }; // The qubit ID targets of each gate
 constant int gateSizes[] = { 4, 16 };
 // #define totalTargetCounts 2 // sum of qTargetsCount
 #define totalGatesLength 20 // sum of gateSizes
 
+#define MULTIPLIER_KERNELS 2
 
 #define SINGLE_QUBIT_GATE_SIZE 4
 #define DOUBLE_QUBIT_GATE_SIZE 16
 
-channel float realCh;
-channel float imagCh;
-
-channel float realOutCh;
-channel float imagOutCh;
+channel cfloat inCh;
+channel cfloat outCh;
 
 channel int singleQubitMetaCh;
-channel float realSingleQubitGateInCh;
-channel float imagSingleQubitGateInCh;
-channel float realSingleQubitGateOutCh;
-channel float imagSingleQubitGateOutCh;
+channel cfloat singleQubitGateInCh;
+channel cfloat singleQubitGateOutCh;
 
 channel int doubleQubitMetaCh;
-channel float realDoubleQubitGateInCh;
-channel float imagDoubleQubitGateInCh;
-channel float realDoubleQubitGateOutCh;
-channel float imagDoubleQubitGateOutCh;
+channel cfloat doubleQubitGateInCh;
+channel cfloat doubleQubitGateOutCh;
+
+channel int twoMultiplierOpCodeCh[MULTIPLIER_KERNELS];
+channel cfloat twoMultiplierInCh[MULTIPLIER_KERNELS];
+channel cfloat twoMultiplierOutCh[MULTIPLIER_KERNELS];
+
+#define TWO_MULTIPLIER_EACH_CALLS 1
+__kernel void twoMultiplier() {
+
+	size_t gid = get_global_id(0);
+	printf("TWO KERNEL... %i\n", gid);
+
+	for(int calls = 0; calls < TWO_MULTIPLIER_EACH_CALLS; calls++) {
+		// listen for an op code
+		int opCode = read_channel_altera(twoMultiplierOpCodeCh[gid]);
+		printf("TWO KERNEL: opCode = %i ... \n", opCode);
+
+		if(opCode == 0) break; // exit if opCode is 0
+
+		// otherwise start run
+
+		cfloat mat[4];
+		cfloat vec[2];
+
+		for(int i = 0; i < 4; i++) {
+			mat[i] = read_channel_altera(twoMultiplierInCh[gid]);
+		}
+		for(int i = 0; i < 2; i++) {
+			vec[i] = read_channel_altera(twoMultiplierInCh[gid]);
+		}
+
+		cfloat outVec[2];
+
+		outVec[0] = cadd(cmult(mat[0],vec[0]), cmult(mat[1],vec[1]));
+		outVec[1] = cadd(cmult(mat[2],vec[0]), cmult(mat[3],vec[1]));
+
+		for(int i = 0; i < 2; i++) {
+			write_channel_altera(twoMultiplierOutCh[gid], outVec[i]);
+		}
+	}
+}
+
 
 // M x M gate
 // N-dimensional state
 __kernel void kernelInput(__global  float * restrict gates_r, __global  float * restrict gates_i, __global  float * restrict state_r, __global  float * restrict state_i) {
 
+	printf("INPUT KERNEL...\n");
+
 	// write the gate to the channel
 	for(int i = 0; i < totalGatesLength; i++) {
-		write_channel_altera(realCh, gates_r[i]);
-		write_channel_altera(imagCh, gates_i[i]);
+		write_channel_altera(inCh, (cfloat)(gates_r[i], gates_i[i]));
 	}
 
 	// write the state to the channel
 	for(int i = 0; i < N; i++) {
-		write_channel_altera(realCh, state_r[i]);
-		write_channel_altera(imagCh, state_i[i]);
+		write_channel_altera(inCh, (cfloat)(state_r[i], state_i[i]));
 	}
 }
 
 __kernel void singleQubitGate() {
-	int calls = 0;
-	while(calls < SINGLE_CALLS) {
+	printf("SINGLE QUBIT GATE KERNEL...\n");
+
+	for(int calls = 0; calls < SINGLE_CALLS; calls++) {
 		// read in the target qubit ID
 		int qID = (int)read_channel_altera(singleQubitMetaCh);
 
 		// read in the gate
 		cfloat gate[SINGLE_QUBIT_GATE_SIZE];
 		for(int i = 0; i < SINGLE_QUBIT_GATE_SIZE; i++) {
-			gate[i] = (cfloat)(read_channel_altera(realSingleQubitGateInCh), read_channel_altera(imagSingleQubitGateInCh));
+			gate[i] = read_channel_altera(singleQubitGateInCh);
 		}
 
 		// read in state vector
 		cfloat state[N];
-		for(int i = 0; i < N; i++) state[i] = (cfloat)(read_channel_altera(realSingleQubitGateInCh), read_channel_altera(imagSingleQubitGateInCh));
+		for(int i = 0; i < N; i++) state[i] = read_channel_altera(singleQubitGateInCh);
 
 		// apply the computation
 		for(int i = 0; i < pow(2,n-1); i++) {
 			int zero_state = nthCleared(i, qID);
 			int one_state = zero_state | (1 << qID);
-
+			printf("SINGLE QUBIT GATE KERNEL: i = %i...\n", i);
 			cfloat zero_amp = state[zero_state];
 			cfloat one_amp = state[one_state];
 
-			state[zero_state] = cadd(cmult(gate[0],zero_amp), cmult(gate[1],one_amp));
-			state[one_state] = cadd(cmult(gate[2],zero_amp), cmult(gate[3],one_amp));
+			// activate the i-th multiplication kernel
+			write_channel_altera(twoMultiplierOpCodeCh[i], 1);
+			for(int j = 0; j < SINGLE_QUBIT_GATE_SIZE; j++) {
+				write_channel_altera(twoMultiplierInCh[i], gate[j]);
+			}
+			write_channel_altera(twoMultiplierInCh[i], zero_amp);
+			write_channel_altera(twoMultiplierInCh[i], one_amp);
+			
+			// read out
+			state[zero_state] = read_channel_altera(twoMultiplierOutCh[i]);
+			state[one_state] = read_channel_altera(twoMultiplierOutCh[i]);
 		}
 
 		// write out output
 		for(int i = 0; i < N; i++) {
-			write_channel_altera(realSingleQubitGateOutCh, creal(state[i]));
-			write_channel_altera(imagSingleQubitGateOutCh, cimag(state[i]));
+			write_channel_altera(singleQubitGateOutCh, state[i]);
 		}
-
-		calls++;
 	}
 }
 
@@ -188,14 +230,13 @@ __kernel void doubleQubitGate() {
 		// read in the gate
 		cfloat gate[DOUBLE_QUBIT_GATE_SIZE];
 		for(int i = 0; i < DOUBLE_QUBIT_GATE_SIZE; i++) {
-			gate[i] = (cfloat)(read_channel_altera(realDoubleQubitGateInCh), read_channel_altera(imagDoubleQubitGateInCh));
+			gate[i] = read_channel_altera(doubleQubitGateInCh);
 		}
 
 		// read in state vector
 		cfloat state[N];
 		for(int i = 0; i < N; i++) {
-			state[i] = (cfloat)(read_channel_altera(realDoubleQubitGateInCh), read_channel_altera(imagDoubleQubitGateInCh));
-			printf("state in double... %f", creal(state[i]));
+			state[i] = read_channel_altera(doubleQubitGateInCh);
 		}
 
 		// apply the computation
@@ -205,7 +246,6 @@ __kernel void doubleQubitGate() {
 			for(int j = 0; j < 4; j++) {
 				stateIndices[j] = nthInSequence(i, 2, qIDs, j);
 				substate[j] = state[stateIndices[j]];
-				printf("state index... %d\n", stateIndices[j]);
 			}
 
 			for(int j = 0; j < 4; j++) {
@@ -219,8 +259,7 @@ __kernel void doubleQubitGate() {
 
 		// write out output
 		for(int i = 0; i < N; i++) {
-			write_channel_altera(realDoubleQubitGateOutCh, creal(state[i]));
-			write_channel_altera(imagDoubleQubitGateOutCh, cimag(state[i]));
+			write_channel_altera(doubleQubitGateOutCh, state[i]);
 		}
 
 		calls++;
@@ -231,11 +270,11 @@ __kernel void doubleQubitGate() {
 __kernel void kernelCompute() {
 	// read in all gates
 	cfloat gates[totalGatesLength];
-	for(int i = 0; i < totalGatesLength; i++) gates[i] = (cfloat)(read_channel_altera(realCh), read_channel_altera(imagCh));
+	for(int i = 0; i < totalGatesLength; i++) gates[i] = read_channel_altera(inCh);
 
 	// read in the input state
 	cfloat state[N];
-	for(int i = 0; i < N; i++) state[i] = (cfloat)(read_channel_altera(realCh), read_channel_altera(imagCh));
+	for(int i = 0; i < N; i++) state[i] = read_channel_altera(inCh);
 
 	// loop through the gates
 	int consumedGates = 0;
@@ -247,17 +286,15 @@ __kernel void kernelCompute() {
 			write_channel_altera(singleQubitMetaCh, qTargets[consumedTargets]);
 			// write the gate and the state to the kernel
 			for(int i = 0; i < SINGLE_QUBIT_GATE_SIZE; i++) {
-				write_channel_altera(realSingleQubitGateInCh, creal(gates[consumedGates+i]));
-				write_channel_altera(imagSingleQubitGateInCh, cimag(gates[consumedGates+i]));
+				write_channel_altera(singleQubitGateInCh, gates[consumedGates+i]);
 			}
 			for(int i = 0; i < N; i++) {
-				write_channel_altera(realSingleQubitGateInCh, creal(state[i]));
-				write_channel_altera(imagSingleQubitGateInCh, cimag(state[i]));
+				write_channel_altera(singleQubitGateInCh, state[i]);
 			}
 
 			// now read on the output channel of the kernel
 			for(int i = 0; i < N; i++) {
-				state[i] = (cfloat)(read_channel_altera(realSingleQubitGateOutCh), read_channel_altera(imagSingleQubitGateOutCh));
+				state[i] = read_channel_altera(singleQubitGateOutCh);
 			}
 
 			consumedGates += SINGLE_QUBIT_GATE_SIZE;
@@ -267,17 +304,15 @@ __kernel void kernelCompute() {
 			write_channel_altera(doubleQubitMetaCh, qTargets[consumedTargets+1]);
 			// write the gate and the state to the kernel
 			for(int i = 0; i < DOUBLE_QUBIT_GATE_SIZE; i++) {
-				write_channel_altera(realDoubleQubitGateInCh, creal(gates[consumedGates+i]));
-				write_channel_altera(imagDoubleQubitGateInCh, cimag(gates[consumedGates+i]));
+				write_channel_altera(doubleQubitGateInCh, gates[consumedGates+i]);
 			}
 			for(int i = 0; i < N; i++) {
-				write_channel_altera(realDoubleQubitGateInCh, creal(state[i]));
-				write_channel_altera(imagDoubleQubitGateInCh, cimag(state[i]));
+				write_channel_altera(doubleQubitGateInCh, state[i]);
 			}
 
 			// now read on the output channel of the kernel
 			for(int i = 0; i < N; i++) {
-				state[i] = (cfloat)(read_channel_altera(realDoubleQubitGateOutCh), read_channel_altera(imagDoubleQubitGateOutCh));
+				state[i] = read_channel_altera(doubleQubitGateOutCh);
 			}
 
 			consumedGates += DOUBLE_QUBIT_GATE_SIZE;
@@ -290,8 +325,7 @@ __kernel void kernelCompute() {
 
 	// write final state to output
 	for(int i = 0; i < N; i++) {
-		write_channel_altera(realOutCh, creal(state[i]));
-		write_channel_altera(imagOutCh, cimag(state[i]));
+		write_channel_altera(outCh, state[i]);
 	}
 }
 
@@ -358,8 +392,9 @@ __kernel void kernelCompute() {
 
 __kernel void kernelOutput(__global  float * restrict state_real, __global float * restrict state_imag) {
 	for(int i = 0; i < N; i++) {
-		state_real[i] = read_channel_altera(realOutCh);
-		state_imag[i] = read_channel_altera(imagOutCh);
+		cfloat amp = read_channel_altera(outCh);
+		state_real[i] = creal(amp);
+		state_imag[i] = cimag(amp);
 	}
 }
 
