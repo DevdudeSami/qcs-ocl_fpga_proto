@@ -95,7 +95,7 @@ int nthInSequence(int n, int tCount, int* ts, int s) {
 #define SINGLE_CALLS 1
 #define DOUBLE_CALLS 1
 constant int qTargetsCount[] = { 1, 2 }; // Number of target qubits of each gate
-constant int qTargets[] = { 1, 1, 0 }; // The qubit ID targets of each gate
+constant int qTargets[] = { 0, 0, 1 }; // The qubit ID targets of each gate
 constant int gateSizes[] = { 4, 16 };
 // #define totalTargetCounts 2 // sum of qTargetsCount
 #define totalGatesLength 20 // sum of gateSizes
@@ -195,6 +195,8 @@ __kernel void singleQubitGate() {
 		for(int i = 0; i < pow(2,n-1); i++) {
 			int zero_state = nthCleared(i, qID);
 			int one_state = zero_state | (1 << qID);
+			printf("qID %i\t zero_state %i\t one_state %i\n", qID, zero_state, one_state);
+
 			printf("SINGLE QUBIT GATE KERNEL: i = %i...\n", i);
 			cfloat zero_amp = state[zero_state];
 			cfloat one_amp = state[one_state];
@@ -239,6 +241,7 @@ __kernel void doubleQubitGate() {
 			state[i] = read_channel_altera(doubleQubitGateInCh);
 		}
 
+
 		// apply the computation
 		for(int i = 0; i < pow(2,n-2); i++) {
 			int stateIndices[4];
@@ -247,6 +250,9 @@ __kernel void doubleQubitGate() {
 				stateIndices[j] = nthInSequence(i, 2, qIDs, j);
 				substate[j] = state[stateIndices[j]];
 			}
+		printf("qIDs... %i\t%i\n", qIDs[0], qIDs[1]);
+		printf("stateIndices... %i\t%i\t%i\t%i\n", stateIndices[0], stateIndices[1], stateIndices[2], stateIndices[3]);
+		printf("substate... %f\t%f\t%f\t%f\n", creal(substate[0]), creal(substate[1]), creal(substate[2]), creal(substate[3]));
 
 			for(int j = 0; j < 4; j++) {
 				cfloat sum = (0,0);
