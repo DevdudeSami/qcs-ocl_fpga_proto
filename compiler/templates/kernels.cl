@@ -43,43 +43,48 @@ inline cfloat csqrt(cfloat a) {
 
 /************************ END COMPLEX NUMBERS ************************/
 
-// /****** GATES ******/
-constant cfloat H[] = { 
-	(cfloat)(M_SQRT1_2_F, 0), (cfloat)(M_SQRT1_2_F, 0), 
-	(cfloat)(M_SQRT1_2_F, 0), (cfloat)(-M_SQRT1_2_F, 0) 
-}; // 0
-constant cfloat CNOT[] = { 
-	(cfloat)(1, 0), (cfloat)(0, 0), (cfloat)(0,0), (cfloat)(0,0),
-	(cfloat)(0, 0), (cfloat)(1, 0), (cfloat)(0,0), (cfloat)(0,0), 
-	(cfloat)(0, 0), (cfloat)(0, 0), (cfloat)(0,0), (cfloat)(1,0), 
-	(cfloat)(0, 0), (cfloat)(0, 0), (cfloat)(1,0), (cfloat)(0,0)
-}; // 1
-constant cfloat X[] = { 
-	(cfloat)(0, 0), (cfloat)(1, 0), 
-	(cfloat)(1, 0), (cfloat)(0, 0) 
-}; // 2
-constant cfloat Y[] = { 
-	(cfloat)(0, 0), (cfloat)(0, 0), 
-	(cfloat)(0, 0), (cfloat)(0, 0) 
-}; // 3
-constant cfloat Z[] = { 
-	(cfloat)(0, 0), (cfloat)(0, 0), 
-	(cfloat)(0, 0), (cfloat)(0, 0) 
-}; // 4
+typedef struct cvec2_ {
+	cfloat a;
+	cfloat b;
+} cvec2;
+
+// // /****** GATES ******/
+// constant cfloat H[] = { 
+// 	(cfloat)(M_SQRT1_2_F, 0), (cfloat)(M_SQRT1_2_F, 0), 
+// 	(cfloat)(M_SQRT1_2_F, 0), (cfloat)(-M_SQRT1_2_F, 0) 
+// }; // 0
+// constant cfloat CNOT[] = { 
+// 	(cfloat)(1, 0), (cfloat)(0, 0), (cfloat)(0,0), (cfloat)(0,0),
+// 	(cfloat)(0, 0), (cfloat)(1, 0), (cfloat)(0,0), (cfloat)(0,0), 
+// 	(cfloat)(0, 0), (cfloat)(0, 0), (cfloat)(0,0), (cfloat)(1,0), 
+// 	(cfloat)(0, 0), (cfloat)(0, 0), (cfloat)(1,0), (cfloat)(0,0)
+// }; // 1
+// constant cfloat X[] = { 
+// 	(cfloat)(0, 0), (cfloat)(1, 0), 
+// 	(cfloat)(1, 0), (cfloat)(0, 0) 
+// }; // 2
+// constant cfloat Y[] = { 
+// 	(cfloat)(0, 0), (cfloat)(0, 0), 
+// 	(cfloat)(0, 0), (cfloat)(0, 0) 
+// }; // 3
+// constant cfloat Z[] = { 
+// 	(cfloat)(0, 0), (cfloat)(0, 0), 
+// 	(cfloat)(0, 0), (cfloat)(0, 0) 
+// }; // 4
 
 constant int gateSizes[] = {
 	4, 16, 4, 4 ,4
 };
-// /****** END GATES ******/
+// // /****** END GATES ******/
 
-static const cfloat* gateForCode(int code) {
-	if(code == 0) return &H;
-	else if(code == 1) return &CNOT;
-	else if(code == 2) return &X;
-	else if(code == 3) return &Y;
-	else if(code == 4) return &Z;
-	return 0;
-}
+// static const cfloat* gateForCode(int code) {
+// 	if(code == 0) return &H;
+// 	else if(code == 1) return &CNOT;
+// 	else if(code == 2) return &X;
+// 	else if(code == 3) return &Y;
+// 	else if(code == 4) return &Z;
+// 	return 0;
+// }
 
 // as per Kelly (2018)
 static int nthCleared(int n, int t) {
@@ -121,6 +126,8 @@ int nthInSequence(int n, int tCount, int* ts, int s) {
 #define N {{N}} // 2^n
 #define G {{G}} // number of gates
 
+#define SINGLE_QUBIT_GATE_LOOP_COUNT {{singleQubitGateLoopCount}} // 2^(n-1)
+
 {{multiplierEachCalls}}
 
 #define PROBLEM_SIZE {{problemSize}}
@@ -143,22 +150,38 @@ __kernel void mainKernel() {
 
 		if(gateSize == 4) {
 			int qID = problem[tape++];
+			int numberOfControls = problem[tape++];
+			int c = numberOfControls == 1 ? problem[tape++] : 0;
 
-			for(int i = 0; i < pow(2,n-1); i++) {
-				int zero_state = nthCleared(i, qID);
-				int one_state = zero_state | (1 << qID);
-				cfloat zero_amp = state[zero_state];
-				cfloat one_amp = state[one_state];
+			{{singleQubitGateHandlers}}
 
-				// activate the i-th multiplication kernel
-				write_channel_altera(singleMultiplierGateCodeCh[i], gateCode);
-				write_channel_altera(singleMultiplierInCh[i][0], zero_amp);
-				write_channel_altera(singleMultiplierInCh[i][1], one_amp);
+			// #pragma unroll
+			// for(int i = 0; i < SINGLE_QUBIT_GATE_LOOP_COUNT; i++) {
+			// 	int zero_state = nthCleared(i, qID);
+			// 	int one_state = zero_state | (1 << qID);
+
+			// 	cvec2 inVec;
+			// 	inVec.a = state[zero_state];
+			// 	inVec.b = state[one_state];
+
+			// 	int controlZero = 1; // true
+			// 	int controlOne = 1; // true
+
+			// 	if(numberOfControls == 1) {
+			// 		controlZero = (((1 << c) & zero_state) > 0) ? 1 : 0;
+			// 		controlOne = (((1 << c) & one_state) > 0) ? 1 : 0;
+			// 	}
+
+			// 	// activate the i-th multiplication kernel
+			// 	write_channel_altera(singleMultiplierGateCodeCh[i], gateCode);
+			// 	write_channel_altera(singleMultiplierInCh[i], inVec);
 				
-				// read out
-				state[zero_state] = read_channel_altera(singleMultiplierOutCh[i][0]);
-				state[one_state] = read_channel_altera(singleMultiplierOutCh[i][1]);
-			}
+			// 	// read out
+			// 	cvec2 outVec = read_channel_altera(singleMultiplierOutCh[i]);
+
+			// 	if(controlZero) state[zero_state] = outVec.a;
+			// 	if(controlOne) state[one_state] = outVec.b;
+			// }
 		} 
 		// else if(gateSize == 16) {
 		// 	int qID1 = problem[tape++];
@@ -188,6 +211,7 @@ __kernel void mainKernel() {
 	}
 
 	// write final state to output
+	#pragma unroll
 	for(int i = 0; i < N; i++) {
 		write_channel_altera(outCh, state[i]);
 	}

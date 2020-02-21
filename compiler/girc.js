@@ -65,9 +65,28 @@ const doubleMultiplierKernelTemplate = fs.readFileSync('templates/doubleMultipli
 function doubleMultiplierKernelCode(n) {
 	return parseTemplate(doubleMultiplierKernelTemplate, { n })
 }
+const singleQubitGateHandlerTemplate = fs.readFileSync('templates/singleQubitGateHandler.cl', { encoding: 'utf8' })
+function singleQubitGateHandlerCode(i) {
+	return parseTemplate(singleQubitGateHandlerTemplate, { i })
+}
 
 for(const line of gir) {
-	const gateCall = line.split(" ")
+	const gateCall = line.trim().split(" ")
+	
+ 	const controlled = gateCall[0].toLowerCase() === "c"
+	const controlQubits = []
+	if(controlled) {
+		gateCall.shift()
+
+		let controlQubit = parseInt(gateCall[0])
+
+		while(controlQubit == controlQubit) {
+			gateCall.shift()
+			controlQubits.push(controlQubit)
+			controlQubit = parseInt(gateCall[0])
+		}
+	}
+
 	const gate = gateCall[0]
 	const gateSize = gateSizes[gate]
 
@@ -85,22 +104,25 @@ for(const line of gir) {
 			const kernelName = `${multiplier}Multiplier${i}`
 			includedKernels.push(kernelName)
 			kernelNames += `"${kernelName}",\n`
+
+			channels += `channel int ${multiplier}Multiplier${i}GateCodeCh;\n`
+			channels += `channel cvec2 ${multiplier}Multiplier${i}InCh;\n`
+			channels += `channel cvec2 ${multiplier}Multiplier${i}OutCh;\n`	
 		} 
-		includedMultiplierKernels.push(multiplier)
-		
-		channels += `channel int ${multiplier}MultiplierGateCodeCh[${kernelCount}];\n`
-		channels += `channel cfloat ${multiplier}MultiplierInCh[${kernelCount}][${2**gateSize}];\n`
-		channels += `channel cfloat ${multiplier}MultiplierOutCh[${kernelCount}][${2**gateSize}];\n`
+		includedMultiplierKernels.push(multiplier)		
 	}
 	multiplierOccurences[multiplier] += 1
 
 	problemSize += gateCall.length
 
 	problemDefinition += gateCall.join(", ")
-	problemDefinition += ", "	
+	
+	problemSize += controlQubits.length + 1
+	problemDefinition += `, ${controlQubits.length}` + (controlled ? ", " : "")
+	problemDefinition += controlQubits.join(", ")
+	
+	problemDefinition += ", "
 }
-
-const kernelTypeCount = includedKernels.length
 
 problemDefinition = problemDefinition.slice(0, -2) + "}"
 
@@ -113,11 +135,17 @@ let state = "{(cfloat)(1,0),"
 for(let i = 0; i < N-1; i++) state += "(cfloat)(0,0),"
 state = state.slice(0,-1) + "}"
 
+const singleQubitGateLoopCount = 2**(n-1)
+let singleQubitGateHandlers = ""
+for(let i = 0; i < singleQubitGateLoopCount; i++) {
+	singleQubitGateHandlers += singleQubitGateHandlerCode(i)
+}
+
 const templateInputs = {
 	n,
 	N,
 	G,
-	kernelTypeCount,
+	kernelTypeCount: includedKernels.length,
 	kernelDefinitions,
 	kernelNames,
 	kernelCounts,
@@ -126,10 +154,10 @@ const templateInputs = {
 	problemDefinition,
 	multiplierEachCalls,
 	channels,
-	state
+	state,
+	singleQubitGateLoopCount,
+	singleQubitGateHandlers
 }
-
-console.log(templateInputs)
 
 // PROCESS THE TEMPLATE FILES
 

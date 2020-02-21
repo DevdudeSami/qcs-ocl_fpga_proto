@@ -37,7 +37,7 @@ const char* kernelNames[NKERNELS] = {
 	"output"
 };
 
-const int kernelCounts[NKERNELS] = {
+const size_t kernelCounts[NKERNELS] = {
 	1,
 	{{kernelCounts}}
 	1

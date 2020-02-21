@@ -14,16 +14,14 @@ using namespace std;
 
 #define CHECK(X) assert(CL_SUCCESS == (X))
 
-#define n 2 // number of qubits
-#define N 4 // pow(2,n)
-#define G 2 // number of gates
+#define n 1 // number of qubits
+#define N 2 // pow(2,n)
+#define G 1 // number of gates
 
-#define NKERNELS 5
+#define NKERNELS 3
 
 #define K_MAIN 0
 #define K_SINGLE_0 2
-#define K_SINGLE_1 3
-#define K_DOUBLE_0 4
 
 #define K_OUTPUT NKERNELS-1
 
@@ -37,23 +35,19 @@ using namespace std;
 const char* kernelNames[NKERNELS] = {
 	"mainKernel", 
 	"singleMultiplier0",
-"singleMultiplier1",
-"doubleMultiplier0",
 
 	"output"
 };
 
-const int kernelCounts[NKERNELS] = {
+const size_t kernelCounts[NKERNELS] = {
 	1,
 	1,
-1,
-1,
 
 	1
 };
 
-#define PROBLEM_SIZE 5
-const int problem[PROBLEM_SIZE] = {0, 0, 1, 0, 1};
+#define PROBLEM_SIZE 3
+const int problem[PROBLEM_SIZE] = {0, 0, 0};
 
 //multiple kernels (possibly over  multiple devices) required multiple command queues
 cl_kernel kernels[NKERNELS];
